@@ -2,9 +2,6 @@
 Job Manager
 ===========
 In-memory job queue for processing BCTC extraction requests asynchronously.
-Uses threading for background processing (sufficient for MVP on Render free tier).
-
-Jobs are stored in a dict and auto-cleaned after expiry.
 """
 from __future__ import annotations
 
@@ -17,7 +14,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from app.config import settings
-from app.models import JobStatus, ReportType
+from app.models import JobStatus
 from app.services.data_fetcher import fetch_financial_data, fetch_all_reports
 from app.services.data_mapper import map_financial_data
 from app.services.excel_writer import generate_excel
@@ -36,6 +33,7 @@ class JobInfo:
         period: str,
         year_from: int,
         year_to: int,
+        links: dict[str, str] = None
     ):
         self.job_id = job_id
         self.tickers = tickers
@@ -43,12 +41,14 @@ class JobInfo:
         self.period = period
         self.year_from = year_from
         self.year_to = year_to
+        self.links = links or {}
 
         self.status: JobStatus = JobStatus.PENDING
         self.progress: int = 0
         self.message: str = "Đang chờ xử lý..."
         self.error: Optional[str] = None
         self.output_files: list[str] = []
+        self.preview_data: dict[str, dict] = {}
         self.created_at: datetime = datetime.utcnow()
         self.completed_at: Optional[datetime] = None
 
@@ -68,6 +68,7 @@ class JobManager:
         period: str,
         year_from: int,
         year_to: int,
+        links: dict[str, str] = None
     ) -> str:
         """Create a new job and start processing in background."""
         job_id = str(uuid.uuid4())
@@ -79,17 +80,13 @@ class JobManager:
             period=period,
             year_from=year_from,
             year_to=year_to,
+            links=links
         )
 
         with self._lock:
             self._jobs[job_id] = job
 
-        # Start background processing
-        thread = threading.Thread(
-            target=self._process_job,
-            args=(job_id,),
-            daemon=True,
-        )
+        thread = threading.Thread(target=self._process_job, args=(job_id,), daemon=True)
         thread.start()
 
         return job_id
@@ -100,82 +97,77 @@ class JobManager:
             return self._jobs.get(job_id)
 
     def _process_job(self, job_id: str):
-        """Background worker: fetch data, map, generate Excel for each ticker."""
+        """Background worker: fetch data using provided links and AI."""
         job = self.get_job(job_id)
-        if not job:
-            return
+        if not job: return
 
         try:
-            self._update_status(job_id, JobStatus.PROCESSING, 0, "Bắt đầu xử lý...")
+            self._update_status(job_id, JobStatus.PROCESSING, 0, "Bắt đầu trích xuất AI...")
 
-            total_tickers = len(job.tickers)
-            report_types = (
-                ["income_statement", "balance_sheet", "cash_flow"]
-                if job.report_type == "all"
-                else [job.report_type]
-            )
-
-            for idx, ticker in enumerate(job.tickers):
-                progress = int((idx / total_tickers) * 100)
-                self._update_status(
-                    job_id, JobStatus.PROCESSING, progress,
-                    f"Đang xử lý {ticker} ({idx + 1}/{total_tickers})..."
-                )
-
+            # Since we support 1 ticker for now in this flow
+            ticker = job.tickers[0]
+            
+            # Map of Year -> DataFrame (Each DF contains all 150+ fields)
+            all_years_dfs = []
+            
+            total_links = len(job.links)
+            for idx, (period_label, url) in enumerate(job.links.items()):
+                # period_label could be "2015" or "2026-Q1"
                 try:
-                    # Fetch data
-                    reports = {}
-                    for rtype in report_types:
-                        logger.info(f"Job {job_id}: Fetching {rtype} for {ticker}")
-                        reports[rtype] = fetch_financial_data(
-                            ticker, rtype, job.period
-                        )
-                        time.sleep(settings.FETCH_RATE_LIMIT_DELAY)
-
-                    # Map data
-                    mapped = map_financial_data(reports, job.year_from, job.year_to)
-
-                    # Generate Excel
-                    output_dir = os.path.join(settings.OUTPUT_DIR, job_id)
-                    filepath = generate_excel(
-                        ticker, mapped, job.year_from, job.year_to, output_dir
-                    )
-
-                    with self._lock:
-                        job.output_files.append(filepath)
-
-                except Exception as e:
-                    logger.error(f"Job {job_id}: Error processing {ticker}: {e}")
-                    # Continue with other tickers instead of failing the whole job
+                    # Extract year from label
+                    year = int(period_label.split('-')[0])
+                    
                     self._update_status(
-                        job_id, JobStatus.PROCESSING, progress,
-                        f"Lỗi với mã {ticker}: {str(e)}"
+                        job_id, JobStatus.PROCESSING, 
+                        int((idx / total_links) * 100),
+                        f"AI đang đọc báo cáo {period_label}..."
                     )
+                    
+                    # Call fetcher with direct URL
+                    # Note: fetch_financial_data returns a list of DFs.
+                    # We pass the URL as pdf_path.
+                    from app.services.data_fetcher import _fetch_from_pdf_ai
+                    df = _fetch_from_pdf_ai(ticker, "all", year, user_pdf_path=url)
+                    if df is not None:
+                        # Fixup the year if it was a quarter
+                        if "-" in period_label:
+                            # If it's a quarter, we might need special handling in future,
+                            # for now we treat as specific data points for that year or store label.
+                            pass
+                        all_years_dfs.append(df)
+                except Exception as e:
+                    logger.error(f"Error processing {period_label}: {e}")
 
-            # Final status
-            if job.output_files:
-                self._update_status(
-                    job_id, JobStatus.COMPLETED, 100,
-                    f"Hoàn thành {len(job.output_files)}/{total_tickers} mã"
-                )
-            else:
-                self._update_status(
-                    job_id, JobStatus.FAILED, 0,
-                    "Không thể xử lý bất kỳ mã nào"
-                )
+            if not all_years_dfs:
+                raise ValueError("Không thể trích xuất dữ liệu từ các link đã cung cấp.")
+
+            # Construct reports dict for the mapper
+            reports = {
+                "income_statement": all_years_dfs,
+                "balance_sheet": all_years_dfs,
+                "cash_flow": all_years_dfs
+            }
+
+            # Map data
+            mapped = map_financial_data(reports, job.year_from, job.year_to)
+            
+            with self._lock:
+                job.preview_data[ticker] = mapped
+
+            # Generate Excel
+            output_dir = os.path.join(settings.OUTPUT_DIR, job_id)
+            filepath = generate_excel(ticker, mapped, job.year_from, job.year_to, output_dir)
+
+            with self._lock:
+                job.output_files.append(filepath)
+
+            self._update_status(job_id, JobStatus.COMPLETED, 100, "Trích xuất hoàn tất!")
 
         except Exception as e:
-            logger.exception(f"Job {job_id}: Unexpected error: {e}")
+            logger.exception(f"Job {job_id} failed: {e}")
             self._update_status(job_id, JobStatus.FAILED, 0, str(e))
 
-    def _update_status(
-        self,
-        job_id: str,
-        status: JobStatus,
-        progress: int,
-        message: str,
-    ):
-        """Thread-safe status update."""
+    def _update_status(self, job_id: str, status: JobStatus, progress: int, message: str):
         with self._lock:
             job = self._jobs.get(job_id)
             if job:
@@ -186,30 +178,29 @@ class JobManager:
                     job.completed_at = datetime.utcnow()
 
     def _start_cleanup_thread(self):
-        """Periodically remove expired jobs to free memory."""
         def cleanup():
             while True:
-                time.sleep(300)  # Run every 5 minutes
+                time.sleep(300)
                 now = datetime.utcnow()
                 with self._lock:
-                    expired = [
-                        jid for jid, job in self._jobs.items()
-                        if (now - job.created_at).total_seconds() > settings.JOB_EXPIRY_SECONDS
-                    ]
+                    expired = [jid for jid, j in self._jobs.items() if (now - j.created_at).total_seconds() > 1800]
                     for jid in expired:
-                        # Clean up output files
                         job = self._jobs[jid]
+                        # Cleanup files
                         for f in job.output_files:
-                            try:
-                                os.remove(f)
-                            except OSError:
-                                pass
+                            try: os.remove(f)
+                            except: pass
                         del self._jobs[jid]
-                        logger.info(f"Cleaned up expired job: {jid}")
+                
+                # Cleanup PDFs older than 10 mins
+                tmp_dir = "/tmp/bctc_pdfs"
+                if os.path.exists(tmp_dir):
+                    curr = time.time()
+                    for f in os.listdir(tmp_dir):
+                        p = os.path.join(tmp_dir, f)
+                        if os.path.isfile(p) and curr - os.path.getmtime(p) > 600:
+                            try: os.remove(p)
+                            except: pass
+        threading.Thread(target=cleanup, daemon=True).start()
 
-        thread = threading.Thread(target=cleanup, daemon=True)
-        thread.start()
-
-
-# Singleton instance
 job_manager = JobManager()

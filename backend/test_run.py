@@ -17,22 +17,29 @@ from app.services.excel_writer import generate_excel
 def test_fetch_and_generate():
     ticker = "DMC"
     period = "year"
-    year_from = 2019
-    year_to = 2024
-    output_dir = "/tmp/bctc_output/test_job"
+    year_from = 2015
+    year_to = 2015
+    output_dir = "./test_output"
+
     
-    print(f"Testing with {ticker} from {year_from} to {year_to}...")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     
     try:
         # Fetch
         print("Fetching data...")
-        reports = fetch_all_reports(ticker, period)
+        reports = fetch_all_reports(ticker, period, year_from, year_to)
         print("Fetched reports:", reports.keys())
         
         # Map
         print("Mapping data...")
         mapped = map_financial_data(reports, year_from, year_to)
         print("Mapped data sections:", mapped.keys())
+        
+        # Verify years in mapped data
+        if "income_statement" in mapped and "revenue" in mapped["income_statement"]:
+            years = sorted(mapped["income_statement"]["revenue"].keys())
+            print(f"Successfully mapped revenue for years: {years}")
         
         # Generate Excel
         print("Generating Excel...")

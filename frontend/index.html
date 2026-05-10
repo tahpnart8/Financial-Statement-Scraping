@@ -3,34 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Hệ thống trích xuất Báo cáo Tài chính (BCTC) doanh nghiệp niêm yết Việt Nam">
-    <title>BCTC Crawler - Trích xuất Báo cáo Tài chính</title>
+    <title>BCTC Crawler - AI PDF Extraction</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Thêm SheetJS để parse Excel trên trình duyệt -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Background Gradient Orbs -->
     <div class="bg-orb bg-orb-1"></div>
     <div class="bg-orb bg-orb-2"></div>
-    <div class="bg-orb bg-orb-3"></div>
 
     <div class="app-container">
-        <!-- Header -->
         <header class="app-header">
             <div class="logo">
-                <div class="logo-icon">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                        <polyline points="14 2 14 8 20 8"/>
-                        <line x1="16" y1="13" x2="8" y2="13"/>
-                        <line x1="16" y1="17" x2="8" y2="17"/>
-                        <polyline points="10 9 9 9 8 9"/>
-                    </svg>
-                </div>
+                <div class="logo-icon">📊</div>
                 <div>
-                    <h1>BCTC Crawler</h1>
-                    <p class="subtitle">Trích xuất Báo cáo Tài chính Việt Nam</p>
+                    <h1>BCTC AI Crawler</h1>
+                    <p class="subtitle">Trích xuất 150+ chỉ tiêu từ PDF</p>
                 </div>
             </div>
             <div class="header-badge">
@@ -39,167 +29,79 @@
             </div>
         </header>
 
-        <!-- Main Content -->
         <main class="main-content">
-            <!-- Input Form Card -->
-            <section class="card form-card" id="formSection">
+            <!-- Bước 1: Cấu hình -->
+            <section class="card" id="formSection">
                 <div class="card-header">
-                    <h2>📊 Thiết lập truy vấn</h2>
-                    <p>Nhập thông tin để bắt đầu trích xuất dữ liệu BCTC</p>
+                    <h2>Step 1: Cấu hình mã & Thời gian</h2>
                 </div>
-
                 <form id="bctcForm" class="form-grid">
-                    <!-- Ticker Input -->
                     <div class="form-group full-width">
-                        <label for="tickerInput">
-                            <span class="label-icon">🏢</span>
-                            Mã cổ phiếu
-                        </label>
-                        <div class="ticker-input-wrapper">
-                            <input
-                                type="text"
-                                id="tickerInput"
-                                placeholder="VD: DMC, FPT, VNM (phân cách bằng dấu phẩy)"
-                                autocomplete="off"
-                            >
-                            <div class="ticker-tags" id="tickerTags"></div>
-                        </div>
-                        <span class="form-hint">Nhập tối đa 10 mã, phân cách bằng dấu phẩy</span>
+                        <label>Mã cổ phiếu</label>
+                        <input type="text" id="tickerInput" placeholder="VD: DMC" required>
                     </div>
-
-                    <!-- Report Type -->
                     <div class="form-group">
-                        <label for="reportType">
-                            <span class="label-icon">📋</span>
-                            Loại báo cáo
-                        </label>
-                        <select id="reportType">
-                            <option value="all">Tất cả báo cáo</option>
-                            <option value="income_statement">Kết quả kinh doanh</option>
-                            <option value="balance_sheet">Bảng cân đối kế toán</option>
-                            <option value="cash_flow">Lưu chuyển tiền tệ</option>
-                        </select>
-                    </div>
-
-                    <!-- Period Type -->
-                    <div class="form-group">
-                        <label for="periodType">
-                            <span class="label-icon">📅</span>
-                            Kỳ báo cáo
-                        </label>
+                        <label>Kỳ báo cáo</label>
                         <select id="periodType">
                             <option value="year">Theo năm</option>
                             <option value="quarter">Theo quý</option>
                         </select>
                     </div>
-
-                    <!-- Year From -->
                     <div class="form-group">
-                        <label for="yearFrom">
-                            <span class="label-icon">📆</span>
-                            Từ năm
-                        </label>
-                        <input type="number" id="yearFrom" min="2000" max="2030" value="2019">
+                        <label>Từ năm</label>
+                        <input type="number" id="yearFrom" value="2015">
                     </div>
-
-                    <!-- Year To -->
                     <div class="form-group">
-                        <label for="yearTo">
-                            <span class="label-icon">📆</span>
-                            Đến năm
-                        </label>
-                        <input type="number" id="yearTo" min="2000" max="2030" value="2024">
+                        <label>Đến năm</label>
+                        <input type="number" id="yearTo" value="2024">
                     </div>
-
-                    <!-- Submit Button -->
-                    <div class="form-group full-width">
-                        <button type="submit" class="btn-primary" id="submitBtn">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="7 10 12 15 17 10"/>
-                                <line x1="12" y1="15" x2="12" y2="3"/>
-                            </svg>
-                            Trích xuất & Tải Excel
-                        </button>
-                    </div>
+                    <button type="submit" class="btn-primary full-width" style="grid-column: 1/-1;">Tiếp theo: Nhập link PDF →</button>
                 </form>
             </section>
 
-            <!-- Progress Card (hidden by default) -->
-            <section class="card progress-card hidden" id="progressSection">
+            <!-- Bước 2: Upload File -->
+            <section class="card hidden" id="uploadSection">
                 <div class="card-header">
-                    <h2>⏳ Đang xử lý</h2>
-                    <p id="progressMessage">Đang khởi tạo...</p>
+                    <h2>Step 2: Tải lên BCTC (PDF)</h2>
+                    <p>Hệ thống tự động cắt trang và dùng LLaMA AI trích xuất 150+ chỉ tiêu</p>
                 </div>
+                <div id="uploadContainer" class="form-group full-width" style="display: flex; flex-direction: column; gap: 12px;">
+                    <!-- Dropzones will be generated here by JS -->
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="btn-secondary" id="backToConfigBtn">Quay lại</button>
+                    <button class="btn-primary" id="processAiBtn" style="flex: 1;">🚀 Bắt đầu trích xuất AI</button>
+                </div>
+            </section>
 
+            <!-- Bước 3: Progress -->
+            <section class="card hidden" id="progressSection">
+                <div class="card-header">
+                    <h2>🤖 AI đang đọc báo cáo...</h2>
+                    <p id="progressMessage">Vui lòng đợi trong giây lát</p>
+                </div>
                 <div class="progress-container">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
-                    </div>
+                    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
                     <span class="progress-text" id="progressText">0%</span>
                 </div>
-
-                <div class="progress-steps" id="progressSteps">
-                    <div class="step active">
-                        <div class="step-icon">1</div>
-                        <span>Gửi yêu cầu</span>
-                    </div>
-                    <div class="step">
-                        <div class="step-icon">2</div>
-                        <span>Thu thập dữ liệu</span>
-                    </div>
-                    <div class="step">
-                        <div class="step-icon">3</div>
-                        <span>Xử lý & Mapping</span>
-                    </div>
-                    <div class="step">
-                        <div class="step-icon">4</div>
-                        <span>Tạo Excel</span>
-                    </div>
-                </div>
             </section>
 
-            <!-- Result Card (hidden by default) -->
-            <section class="card result-card hidden" id="resultSection">
+            <!-- Bước 4: Preview & Download -->
+            <section class="card hidden" id="resultSection" style="max-width: 100%;">
                 <div class="card-header">
-                    <div class="result-icon">✅</div>
-                    <h2>Hoàn thành!</h2>
-                    <p id="resultMessage">File Excel đã sẵn sàng để tải xuống</p>
+                    <h2>✅ Hoàn thành</h2>
                 </div>
-
-                <button class="btn-download" id="downloadBtn">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                    Tải file Excel
-                </button>
-
-                <button class="btn-secondary" id="newQueryBtn">
-                    ← Truy vấn mới
-                </button>
-            </section>
-
-            <!-- Error Card (hidden by default) -->
-            <section class="card error-card hidden" id="errorSection">
-                <div class="card-header">
-                    <div class="error-icon">❌</div>
-                    <h2>Có lỗi xảy ra</h2>
-                    <p id="errorMessage">Vui lòng thử lại</p>
+                <div class="preview-container" style="overflow-x: auto; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: #fff; max-height: 500px;">
+                    <table id="previewTable" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; color: #333;">
+                        <thead id="previewTableHeader"></thead>
+                        <tbody id="previewTableBody"></tbody>
+                    </table>
                 </div>
-                <button class="btn-secondary" id="retryBtn">
-                    🔄 Thử lại
-                </button>
+                <button class="btn-download" id="downloadBtn">Tải file Excel (Full 150+ chỉ tiêu)</button>
+                <button class="btn-secondary" id="newQueryBtn" style="margin-top: 10px;">Làm truy vấn mới</button>
             </section>
         </main>
-
-        <!-- Footer -->
-        <footer class="app-footer">
-            <p>BCTC Crawler v1.0 · Dữ liệu từ vnstock & CafeF · Chỉ dùng cho mục đích nghiên cứu</p>
-        </footer>
     </div>
-
     <script src="app.js"></script>
 </body>
 </html>

@@ -4,16 +4,6 @@ Excel Writer Service
 Dynamically generates an Excel workbook populated with financial data.
 The template is generated programmatically (not from a static .xlsx file)
 to support dynamic year ranges.
-
-Sheet structure mirrors the DMC model.xlsx:
-  1. BCTC du phong    – Consolidated PL + BS + CF
-  2. Doanh thu        – Revenue analysis
-  3. Vốn lưu động     – Working capital
-  4. TSCĐ             – Fixed assets
-  5. Vốn CSH          – Owner's equity
-  6. DT&CP tài chính  – Financial income/expenses
-  7. Định giá          – Valuation (empty template)
-  8. Giả định          – Assumptions (empty template)
 """
 from __future__ import annotations
 
@@ -21,6 +11,7 @@ import logging
 import os
 from typing import Any
 
+import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import (
     Font,
@@ -28,11 +19,10 @@ from openpyxl.styles import (
     Alignment,
     Border,
     Side,
-    numbers,
 )
 from openpyxl.utils import get_column_letter
 
-from app.services.data_mapper import PL_ROW_MAP, BS_ROW_MAP
+from app.services.data_mapper import PL_ROW_MAP, BS_ROW_MAP, CF_ROW_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -113,15 +103,141 @@ BS_LABELS = {
     58: "5. Tài sản ngắn hạn khác",
     60: "B. TÀI SẢN DÀI HẠN",
     61: "I. Các khoản phải thu dài hạn",
+    62: "1. Phải thu dài hạn của khách hàng",
+    63: "2. Trả trước cho người bán dài hạn",
+    64: "3. Vốn kinh doanh ở các đơn vị trực thuộc",
+    65: "4. Phải thu nội bộ dài hạn",
+    66: "5. Phải thu về cho vay dài hạn",
+    67: "6. Phải thu dài hạn khác",
+    68: "7. Dự phòng phải thu dài hạn khó đòi (*)",
     69: "II. Tài sản cố định",
     70: "1. Tài sản cố định hữu hình",
     71: "      - Nguyên giá",
     72: "      - Giá trị hao mòn lũy kế (*)",
     73: "2. Tài sản cố định thuê tài chính",
+    74: "      - Nguyên giá",
+    75: "      - Giá trị hao mòn lũy kế (*)",
     76: "3. Tài sản cố định vô hình",
+    77: "      - Nguyên giá",
+    78: "      - Giá trị hao mòn lũy kế (*)",
     79: "III. Bất động sản đầu tư",
+    80: "      - Nguyên giá",
+    81: "      - Giá trị hao mòn lũy kế (*)",
+    82: "IV. Tài sản dở dang dài hạn",
+    83: "1. Chi phí sản xuất, kinh doanh dở dang dài hạn",
+    84: "2. Chi phí xây dựng cơ bản dở dang",
+    85: "V. Đầu tư tài chính dài hạn",
+    86: "1. Đầu tư vào công ty con",
+    87: "2. Đầu tư vào công ty liên kết, liên doanh",
+    88: "3. Đầu tư góp vốn vào đơn vị khác",
+    89: "4. Dự phòng đầu tư tài chính dài hạn (*)",
+    90: "5. Đầu tư nắm giữ đến ngày đáo hạn",
+    91: "6. Đầu tư dài hạn khác",
+    92: "VI. Tài sản dài hạn khác",
+    93: "1. Chi phí trả trước dài hạn",
+    94: "2. Tài sản thuế thu nhập hoãn lại",
+    95: "3. Thiết bị, vật tư, phụ tùng thay thế dài hạn",
+    96: "4. Tài sản dài hạn khác",
+    97: "VII. Lợi thế thương mại",
+    98: "TỔNG CỘNG TÀI SẢN",
+    100: "NGUỒN VỐN",
+    101: "A. NỢ PHẢI TRẢ",
+    102: "I. Nợ ngắn hạn",
+    103: "1. Phải trả người bán ngắn hạn",
+    104: "2. Người mua trả tiền trước ngắn hạn",
+    105: "3. Thuế và các khoản phải nộp Nhà nước",
+    106: "4. Phải trả người lao động",
+    107: "5. Chi phí phải trả ngắn hạn",
+    108: "6. Phải trả nội bộ ngắn hạn",
+    109: "7. Phải trả theo tiến độ kế hoạch hợp đồng xây dựng",
+    110: "8. Doanh thu chưa thực hiện ngắn hạn",
+    111: "9. Phải trả ngắn hạn khác",
+    112: "10. Vay và nợ thuê tài chính ngắn hạn",
+    113: "11. Dự phòng phải trả ngắn hạn",
+    114: "12. Quỹ khen thưởng, phúc lợi",
+    115: "13. Quỹ bình ổn giá",
+    116: "14. Giao dịch mua bán lại trái phiếu Chính phủ",
+    117: "II. Nợ dài hạn",
+    118: "1. Phải trả người bán dài hạn",
+    119: "2. Người mua trả tiền trước dài hạn",
+    120: "3. Chi phí phải trả dài hạn",
+    121: "4. Phải trả nội bộ về vốn kinh doanh",
+    122: "5. Phải trả nội bộ dài hạn",
+    123: "6. Doanh thu chưa thực hiện dài hạn",
+    124: "7. Phải trả dài hạn khác",
+    125: "8. Vay và nợ thuê tài chính dài hạn",
+    126: "9. Trái phiếu chuyển đổi",
+    127: "10. Cổ phiếu ưu đãi (Nợ)",
+    128: "11. Thuế thu nhập hoãn lại phải trả",
+    129: "12. Dự phòng phải trả dài hạn",
+    130: "13. Quỹ phát triển khoa học và công nghệ",
+    131: "14. Dự phòng trợ cấp mất việc làm",
+    132: "B. VỐN CHỦ SỞ HỮU",
+    133: "I. Vốn chủ sở hữu",
+    134: "1. Vốn góp của chủ sở hữu",
+    135: "      - Cổ phiếu phổ thông có quyền biểu quyết",
+    136: "      - Cổ phiếu ưu đãi",
+    137: "2. Thặng dư vốn cổ phần",
+    138: "3. Quyền chọn chuyển đổi trái phiếu",
+    139: "4. Vốn khác của chủ sở hữu",
+    140: "5. Cổ phiếu quỹ (*)",
+    141: "6. Chênh lệch đánh giá lại tài sản",
+    142: "7. Chênh lệch tỷ giá hối đoái",
+    143: "8. Quỹ đầu tư phát triển",
+    144: "9. Quỹ hỗ trợ sắp xếp doanh nghiệp",
+    145: "10. Quỹ khác thuộc vốn chủ sở hữu",
+    146: "11. Lợi nhuận sau thuế chưa phân phối",
+    147: "      - LNST chưa phân phối lũy kế đến cuối kỳ trước",
+    148: "      - LNST chưa phân phối kỳ này",
+    149: "12. Nguồn vốn đầu tư XDCB",
+    150: "13. Lợi ích cổ đông không kiểm soát",
+    151: "14. Quỹ dự phòng tài chính",
+    152: "II. Nguồn kinh phí và quỹ khác",
+    153: "1. Nguồn kinh phí",
+    154: "2. Nguồn kinh phí đã hình thành TSCĐ",
+    155: "C. LỢI ÍCH CỔ ĐÔNG THIỂU SỐ",
+    156: "TỔNG CỘNG NGUỒN VỐN",
 }
 
+CF_LABELS = {
+    160: "I. Lưu chuyển tiền từ hoạt động kinh doanh",
+    161: "Lãi lỗ sau thuế",
+    162: "Khấu hao TSCĐ",
+    163: "Thay đổi vốn lưu động",
+    164: "Thay đổi khác",
+    165: "Lưu chuyển tiền thuần từ hoạt động kinh doanh",
+    167: "II. Lưu chuyển tiền từ hoạt động đầu tư",
+    168: "1. Tiền chi để mua sắm, xây dựng TSCĐ và các tài sản dài hạn khác",
+    169: "2. Tiền thu từ thanh lý, nhượng bán TSCĐ và các tài sản dài hạn khác",
+    170: "3. Tiền chi cho vay, mua các công cụ nợ của đơn vị khác",
+    171: "4. Tiền thu hồi cho vay, bán lại các công cụ nợ của đơn vị khác",
+    172: "5. Tiền chi đầu tư góp vốn vào đơn vị khác",
+    173: "6. Tiền thu hồi đầu tư góp vốn vào đơn vị khác",
+    174: "7. Tiền thu lãi cho vay, cổ tức và lợi nhuận được chia",
+    175: "8. Tăng giảm tiền gửi ngân hàng có kỳ hạn",
+    176: "9. Mua lại khoản góp vốn của cổ đông thiểu số trong công ty con",
+    177: "10. Tiền thu khác từ hoạt động đầu tư",
+    178: "11. Tiền chi khác cho hoạt động đầu tư",
+    179: "Lưu chuyển tiền thuần từ hoạt động đầu tư",
+    181: "III. Lưu chuyển tiền từ hoạt động tài chính",
+    182: "1. Tiền thu từ phát hành cổ phiếu, nhận vốn góp của chủ sở hữu",
+    183: "2. Tiền chi trả vốn góp cho các chủ sở hữu, mua lại cổ phiếu của doanh nghiệp đã phát hành",
+    184: "3. Tiền thu từ đi vay",
+    185: "4. Tiền trả nợ gốc vay",
+    186: "5. Tiền trả nợ gốc thuê tài chính",
+    187: "6. Cổ tức, lợi nhuận đã trả cho chủ sở hữu",
+    188: "7. Tiền thu khác từ hoạt động tài chính",
+    189: "8. Tiền chi khác cho hoạt động tài chính",
+    190: "Lưu chuyển tiền thuần từ hoạt động tài chính",
+    192: "Lưu chuyển tiền thuần trong kỳ",
+    193: "Tiền và tương đương tiền đầu kỳ",
+    194: "Ảnh hưởng của thay đổi tỷ giá hối đoái quy đổi ngoại tệ",
+    195: "Tiền và tương đương tiền cuối kỳ",
+}
+
+REVERSE_PL_MAP = {v: k for k, v in PL_ROW_MAP.items()}
+REVERSE_BS_MAP = {v: k for k, v in BS_ROW_MAP.items()}
+REVERSE_CF_MAP = {v: k for k, v in CF_ROW_MAP.items()}
 
 def _apply_cell_style(ws, row: int, col: int, value: Any, is_header: bool = False,
                        is_section: bool = False, fmt: str | None = None):
@@ -152,14 +268,20 @@ def _write_year_headers(ws, start_row: int, label: str, years: list[int],
         _apply_cell_style(ws, start_row, label_col + 1 + i, year, is_header=True)
 
 
-def _write_data_row(ws, row: int, label: str, data: dict[int, Any],
+def _write_data_row(ws, row: int, label: str, data: dict[int, Any] | None,
                     years: list[int], label_col: int = 2,
                     is_section: bool = False, fmt: str | None = NUMBER_FORMAT):
-    """Write a label + yearly values into a row."""
+    """Write a label + yearly values into a row. If data is None, leave value cells blank."""
     _apply_cell_style(ws, row, label_col, label, is_section=is_section)
-    for i, year in enumerate(years):
-        val = data.get(year, 0)
-        _apply_cell_style(ws, row, label_col + 1 + i, val, fmt=fmt)
+    if data is None:
+        for i, year in enumerate(years):
+            _apply_cell_style(ws, row, label_col + 1 + i, "", is_section=is_section)
+    else:
+        for i, year in enumerate(years):
+            val = data.get(year, 0)
+            if pd.isna(val):
+                val = 0
+            _apply_cell_style(ws, row, label_col + 1 + i, val, fmt=fmt, is_section=is_section)
 
 
 # ── Sheet Builders ─────────────────────────────────────────────────────────────
@@ -175,7 +297,7 @@ def _build_bctc_sheet(
 
     # Set column widths
     ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 50
+    ws.column_dimensions["B"].width = 55
     for i, _ in enumerate(years):
         col_letter = get_column_letter(3 + i)
         ws.column_dimensions[col_letter].width = 18
@@ -184,52 +306,76 @@ def _build_bctc_sheet(
     _write_year_headers(ws, 1, "PL", years)
 
     is_data = mapped_data.get("income_statement", {})
-    for internal_key, row_idx in PL_ROW_MAP.items():
-        label = PL_LABELS.get(row_idx, internal_key)
-        data = is_data.get(internal_key, {})
-        is_section = row_idx in {5, 7, 14, 18, 22, 25}
-        fmt = PERCENT_FORMAT if row_idx == 20 else NUMBER_FORMAT
-        _write_data_row(ws, row_idx, label, data, years, is_section=is_section, fmt=fmt)
-
-    # Tax rate row (row 20) — computed from data
+    
+    # Calculate tax rate mapping manually
+    tax_rate_data = {}
     pbt = is_data.get("profit_before_tax", {})
     tax = is_data.get("current_tax_expense", {})
-    tax_rate_data = {}
     for y in years:
         pbt_val = pbt.get(y, 0)
         tax_val = tax.get(y, 0)
         if pbt_val and pbt_val != 0:
             tax_rate_data[y] = tax_val / pbt_val
-    _write_data_row(ws, 20, "Thuế suất", tax_rate_data, years, fmt=PERCENT_FORMAT)
+            
+    # Calculate Profit Margin (% LNST)
+    margin_data = {}
+    rev = is_data.get("net_revenue", {})
+    pat = is_data.get("profit_after_tax", {})
+    for y in years:
+        rev_val = rev.get(y, 0)
+        pat_val = pat.get(y, 0)
+        if rev_val and rev_val != 0:
+            margin_data[y] = pat_val / rev_val
+            
+    for row_idx, label in PL_LABELS.items():
+        is_section = "Tổng" in label or "Lợi nhuận" in label or label.isupper()
+        fmt = PERCENT_FORMAT if "%" in label or "Thuế suất" in label else NUMBER_FORMAT
+        
+        if row_idx == 20: # Thuế suất
+            _write_data_row(ws, row_idx, label, tax_rate_data, years, is_section=is_section, fmt=fmt)
+            continue
+        if row_idx == 24: # % LNST
+            _write_data_row(ws, row_idx, label, margin_data, years, is_section=is_section, fmt=fmt)
+            continue
+            
+        internal_key = REVERSE_PL_MAP.get(row_idx)
+        if not internal_key:
+            _write_data_row(ws, row_idx, label, None, years, is_section=is_section)
+        else:
+            data = is_data.get(internal_key, {})
+            _write_data_row(ws, row_idx, label, data, years, is_section=is_section, fmt=fmt)
 
     # ── Balance Sheet Section ──
     bs_start = 30
     _write_year_headers(ws, bs_start, "BS", years)
 
     bs_data = mapped_data.get("balance_sheet", {})
-    for internal_key, row_idx in BS_ROW_MAP.items():
-        label = BS_LABELS.get(row_idx, internal_key)
-        data = bs_data.get(internal_key, {})
-        is_section = row_idx in {32, 33, 60}
-        _write_data_row(ws, row_idx, label, data, years, is_section=is_section)
+    for row_idx, label in BS_LABELS.items():
+        actual_row = row_idx
+        is_section = label.isupper() or label.startswith(tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        
+        internal_key = REVERSE_BS_MAP.get(row_idx)
+        if not internal_key:
+            _write_data_row(ws, actual_row, label, None, years, is_section=is_section)
+        else:
+            data = bs_data.get(internal_key, {})
+            _write_data_row(ws, actual_row, label, data, years, is_section=is_section)
 
     # ── Cash Flow Section ──
-    cf_start = 130  # Start CF section after BS
+    cf_start = 158
     _write_year_headers(ws, cf_start, "CF", years)
 
     cf_data = mapped_data.get("cash_flow", {})
-    cf_labels = {
-        "cfo_net": "Lưu chuyển tiền thuần từ HĐKD",
-        "cfi_net": "Lưu chuyển tiền thuần từ HĐ đầu tư",
-        "cff_net": "Lưu chuyển tiền thuần từ HĐ tài chính",
-        "net_cash_flow": "Lưu chuyển tiền thuần trong kỳ",
-        "cash_beginning": "Tiền và tương đương tiền đầu kỳ",
-        "cash_ending": "Tiền và tương đương tiền cuối kỳ",
-    }
-    for i, (key, label) in enumerate(cf_labels.items()):
-        row = cf_start + 2 + i
-        data = cf_data.get(key, {})
-        _write_data_row(ws, row, label, data, years)
+    for row_idx, label in CF_LABELS.items():
+        actual_row = row_idx
+        is_section = label.isupper() or label.startswith(tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ")) or "Lưu chuyển tiền thuần" in label
+        
+        internal_key = REVERSE_CF_MAP.get(row_idx)
+        if not internal_key:
+            _write_data_row(ws, actual_row, label, None, years, is_section=is_section)
+        else:
+            data = cf_data.get(internal_key, {})
+            _write_data_row(ws, actual_row, label, data, years, is_section=is_section)
 
 
 def _build_revenue_sheet(
@@ -448,7 +594,7 @@ def _build_financial_income_sheet(
         ("financial_income", "DT tài chính", True, "income_statement"),
         ("financial_expenses", "Chi phí tài chính", False, "income_statement"),
         ("interest_expenses", "Lãi vay", False, "income_statement"),
-        ("short_term_borrowings", "Vay ngắn hạn", False, "balance_sheet"),
+        ("st_borrowings", "Vay ngắn hạn", False, "balance_sheet"),
     ]
 
     row = 3
@@ -521,15 +667,8 @@ def generate_excel(
 
     wb = Workbook()
 
-    # Build all 8 sheets
+    # Build ONLY the main BCTC sheet as requested for this version
     _build_bctc_sheet(wb, mapped_data, years)
-    _build_revenue_sheet(wb, mapped_data, years)
-    _build_working_capital_sheet(wb, mapped_data, years)
-    _build_fixed_assets_sheet(wb, mapped_data, years)
-    _build_equity_sheet(wb, mapped_data, years)
-    _build_financial_income_sheet(wb, mapped_data, years)
-    _build_valuation_sheet(wb, years)
-    _build_assumptions_sheet(wb, years)
 
     # Save
     os.makedirs(output_dir, exist_ok=True)

@@ -3,12 +3,17 @@ Configuration settings for the BCTC Crawling System.
 """
 import os
 from dotenv import load_dotenv
+from pydantic import Field
 
 load_dotenv()
 
 
 class Settings:
     """Application settings loaded from environment or defaults."""
+
+    # ── AI Processing ─────────────────────────────────────────────────────────
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
     APP_TITLE: str = "BCTC Crawling System API"
     APP_VERSION: str = "1.0.0"
