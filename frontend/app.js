@@ -199,6 +199,20 @@ el.backToConfigBtn.addEventListener('click', () => showSection('formSection'));
 
 // ── Step 3: AI Extraction ─────────────────────────────────────────────────────
 
+async function warmupServer() {
+    el.progressMessage.textContent = 'Đang kết nối server… (có thể mất 30-60s nếu server đang ngủ)';
+    el.progressFill.style.width = '5%';
+    el.progressText.textContent = '5%';
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout for warmup
+        await fetch(`${API_BASE}/health`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+    } catch (e) {
+        throw new Error('Không thể kết nối tới server backend. Server có thể đang khởi động lại (Render Free Tier). Vui lòng đợi 1-2 phút rồi thử lại.');
+    }
+}
+
 el.processAiBtn.addEventListener('click', async () => {
     const inputs = document.querySelectorAll('.pdf-input');
     const files = [];
@@ -218,12 +232,22 @@ el.processAiBtn.addEventListener('click', async () => {
     if (!canMakeRequests(files.length)) return;
 
     showSection('progressSection');
+
+    // Warmup: ping server to wake it up if it's sleeping (Render Free Tier)
+    try {
+        await warmupServer();
+    } catch (err) {
+        alert(err.message);
+        showSection('uploadSection');
+        return;
+    }
+
     const allData = [];
     const total = files.length;
 
     for (let i = 0; i < total; i++) {
         const item = files[i];
-        const pct = Math.round((i / total) * 100);
+        const pct = Math.round(((i + 0.5) / total) * 90) + 5; // 5% → 95%
         el.progressFill.style.width = `${pct}%`;
         el.progressText.textContent = `${pct}%`;
         el.progressMessage.textContent = `Đang trích xuất năm ${item.period}… (${i + 1}/${total})`;
@@ -234,10 +258,16 @@ el.processAiBtn.addEventListener('click', async () => {
             fd.append('year', item.period);
             fd.append('file', item.file);
 
+            // 5-minute timeout per PDF (Gemini can take a while for large files)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000);
+
             const resp = await fetch(`${API_BASE}/api/jobs/extract-pdf`, {
                 method: 'POST',
                 body: fd,
+                signal: controller.signal,
             });
+            clearTimeout(timeoutId);
 
             if (!resp.ok) {
                 const err = await resp.json();
@@ -250,7 +280,12 @@ el.processAiBtn.addEventListener('click', async () => {
             // Increment usage after each successful extraction
             incrementUsage(1);
         } catch (err) {
-            alert(`Lỗi khi xử lý năm ${item.period}: ${err.message}`);
+            const msg = err.name === 'AbortError'
+                ? `Quá thời gian chờ (timeout 5 phút). Server hoặc Gemini API phản hồi quá chậm.`
+                : err.message === 'Failed to fetch'
+                    ? 'Mất kết nối tới server. Server Render (Free Tier) có thể đã ngủ. Vui lòng đợi 1-2 phút rồi thử lại.'
+                    : err.message;
+            alert(`Lỗi khi xử lý năm ${item.period}: ${msg}`);
             showSection('uploadSection');
             return;
         }
