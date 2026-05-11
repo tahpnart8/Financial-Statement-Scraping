@@ -198,14 +198,15 @@ def _build_key_list_for_prompt() -> str:
     return "\n".join(lines)
 
 
-def process_pdf_with_gemini(pdf_path: str, ticker: str, year: int) -> Optional[Dict[str, Any]]:
+def process_pdf_with_gemini(pdf_path: str, ticker: str, year: int) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Sử dụng Google Gemini 2.5 Flash để đọc trực tiếp file PDF (kể cả dạng scan)
     và trích xuất TOÀN BỘ dữ liệu tài chính sang định dạng JSON.
+    Returns: (Result_JSON, Error_Message)
     """
     if not settings.GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY is not set in environment variables.")
-        return None
+        return None, "GEMINI_API_KEY chưa được cấu hình trên server (Render)."
 
     try:
         # 1. Cấu hình Gemini
@@ -223,7 +224,7 @@ def process_pdf_with_gemini(pdf_path: str, ticker: str, year: int) -> Optional[D
 
         if uploaded_file.state.name == "FAILED":
             logger.error("Gemini file processing failed.")
-            return None
+            return None, "Google Gemini từ chối hoặc không thể xử lý file PDF này."
 
         key_list = _build_key_list_for_prompt()
 
@@ -277,15 +278,19 @@ Trả về JSON với đúng các key trên. Ví dụ:
 
         # 6. Parse và trả về kết quả
         if response and response.text:
-            result = json.loads(response.text)
-            logger.info(f"Successfully extracted {len(result)} indicators for {ticker}/{year}")
-            return result
+            try:
+                result = json.loads(response.text)
+                logger.info(f"Successfully extracted {len(result)} indicators for {ticker}/{year}")
+                return result, None
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON Parse Error: {e} - Raw text: {response.text}")
+                return None, "Gemini không trả về đúng định dạng JSON."
         
-        return None
+        return None, "Gemini không trả về bất kỳ dữ liệu nào."
 
     except Exception as e:
         logger.error(f"Error processing with Gemini: {e}")
-        return None
+        return None, f"Lỗi kết nối Gemini API: {str(e)}"
 
 
 def process_markdown_with_llm(markdown_text: str, ticker: str, year: int) -> Optional[Dict[str, Any]]:

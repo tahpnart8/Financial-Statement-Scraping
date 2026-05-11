@@ -42,11 +42,11 @@ async def extract_pdf(
         tmp_path = tmp.name
 
     try:
-        # 1. Trích xuất trực tiếp bằng Gemini 1.5 Flash (Xử lý được cả PDF scan ảnh)
-        json_data = process_pdf_with_gemini(tmp_path, ticker, year)
+        # 1. Trích xuất trực tiếp bằng Gemini 2.5 Flash (Xử lý được cả PDF scan ảnh)
+        json_data, error_msg = process_pdf_with_gemini(tmp_path, ticker, year)
         
         if not json_data:
-            raise HTTPException(status_code=500, detail="Lỗi khi trích xuất dữ liệu bằng AI (Gemini). Vui lòng kiểm tra lại file hoặc API Key.")
+            raise HTTPException(status_code=500, detail=f"Lỗi AI: {error_msg or 'Không xác định'}")
 
         return ExtractPdfResponse(
             ticker=ticker,
