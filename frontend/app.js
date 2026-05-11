@@ -6,7 +6,7 @@
 
 const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:8002'
-    : 'https://bctc-crawler-api.onrender.com';
+    : 'https://financial-statement-scraping.onrender.com';
 
 const MAX_DAILY_REQUESTS = 20;
 
@@ -15,29 +15,29 @@ const MAX_DAILY_REQUESTS = 20;
 const $ = (id) => document.getElementById(id);
 
 const el = {
-    form:            $('bctcForm'),
-    tickerInput:     $('tickerInput'),
-    periodType:      $('periodType'),
-    yearFrom:        $('yearFrom'),
-    yearTo:          $('yearTo'),
-    formSection:     $('formSection'),
-    uploadSection:   $('uploadSection'),
+    form: $('bctcForm'),
+    tickerInput: $('tickerInput'),
+    periodType: $('periodType'),
+    yearFrom: $('yearFrom'),
+    yearTo: $('yearTo'),
+    formSection: $('formSection'),
+    uploadSection: $('uploadSection'),
     progressSection: $('progressSection'),
-    resultSection:   $('resultSection'),
+    resultSection: $('resultSection'),
     uploadContainer: $('uploadContainer'),
-    processAiBtn:    $('processAiBtn'),
+    processAiBtn: $('processAiBtn'),
     backToConfigBtn: $('backToConfigBtn'),
-    progressFill:    $('progressFill'),
-    progressText:    $('progressText'),
+    progressFill: $('progressFill'),
+    progressText: $('progressText'),
     progressMessage: $('progressMessage'),
-    downloadBtn:     $('downloadBtn'),
-    newQueryBtn:     $('newQueryBtn'),
-    serverStatus:    $('serverStatus'),
-    statusDot:       $('statusDot'),
-    apiUsageBadge:   $('apiUsageBadge'),
-    apiUsageText:    $('apiUsageText'),
-    stepsNav:        $('stepsNav'),
-    resultSummary:   $('resultSummary'),
+    downloadBtn: $('downloadBtn'),
+    newQueryBtn: $('newQueryBtn'),
+    serverStatus: $('serverStatus'),
+    statusDot: $('statusDot'),
+    apiUsageBadge: $('apiUsageBadge'),
+    apiUsageText: $('apiUsageText'),
+    stepsNav: $('stepsNav'),
+    resultSummary: $('resultSummary'),
 };
 
 let config = {};
@@ -96,7 +96,7 @@ async function checkHealth() {
 
 function getTodayKey() {
     const d = new Date();
-    return `bctc_usage_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return `bctc_usage_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function getUsageCount() {
@@ -156,8 +156,8 @@ el.form.addEventListener('submit', (e) => {
     config = {
         ticker: el.tickerInput.value.trim().toUpperCase(),
         period: el.periodType.value,
-        from:   parseInt(el.yearFrom.value),
-        to:     parseInt(el.yearTo.value),
+        from: parseInt(el.yearFrom.value),
+        to: parseInt(el.yearTo.value),
     };
 
     if (config.from > config.to) {
