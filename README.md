@@ -1,6 +1,6 @@
 # 📊 FinXtract
 
-> Hệ thống tự động trích xuất toàn diện 150+ chỉ tiêu tài chính từ Báo cáo Tài chính (PDF) sử dụng Google Gemini AI 2.5 Flash, với giao diện chuyên nghiệp chuẩn FiinPro-X.
+> Hệ thống tự động trích xuất toàn diện 150+ chỉ tiêu tài chính từ Báo cáo Tài chính (PDF) sử dụng Google Gemini AI 2.5 Flash, với giao diện chuyên nghiệp.
 
 ![1778479195653](image/README/1778479195653.png)
 
@@ -75,8 +75,4 @@ Mở trình duyệt: `http://localhost:5500`
 
 ## 💡 Lưu ý về API Quota
 
-Phiên bản miễn phí của Gemini (Free Tier) bị giới hạn **15 RPM (Request/Minute)** và **1,500 RPD (Request/Day)**. Tuy nhiên, hệ thống frontend được cấu hình giới hạn cứng ở **20 request/ngày** để đảm bảo ứng dụng không bao giờ bị dính lỗi `429 Too Many Requests` trong các phiên bản test. Quota được quản lý cục bộ (Local Storage) và tự động reset vào đầu ngày mới.
-
-## 📄 License
-
-MIT License
+Phiên bản miễn phí của Gemini (Free Tier) bị giới hạn **5** **RPM (Request/Minute)** và **20** **RPD (Request/Day)**. Nên người dùng chỉ có thể Extract tối đa 20 file báo cáo tài chính/ngày. Quota được quản lý cục bộ (Local Storage) và tự động reset vào đầu ngày mới.

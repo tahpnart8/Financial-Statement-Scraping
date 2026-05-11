@@ -8,7 +8,7 @@ const API_BASE = (window.location.hostname === 'localhost' || window.location.ho
     ? 'http://localhost:8002'
     : '';  // On Vercel: use same-origin proxy (vercel.json rewrites /api/* → Render)
 
-const MAX_DAILY_REQUESTS = 20;
+const MAX_DAILY_REQUESTS = 250;
 
 // ── DOM Elements ──────────────────────────────────────────────────────────────
 
@@ -116,7 +116,7 @@ function updateApiUsageUI() {
     el.apiUsageBadge.classList.remove('warning', 'danger');
     if (used >= MAX_DAILY_REQUESTS) {
         el.apiUsageBadge.classList.add('danger');
-    } else if (used >= 15) {
+    } else if (used >= 200) {
         el.apiUsageBadge.classList.add('warning');
     }
 }
