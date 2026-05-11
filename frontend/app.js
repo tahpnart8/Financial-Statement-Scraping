@@ -8,7 +8,7 @@ const API_BASE = (window.location.hostname === 'localhost' || window.location.ho
     ? 'http://localhost:8002'
     : '';  // On Vercel: use same-origin proxy (vercel.json rewrites /api/* → Render)
 
-const MAX_DAILY_REQUESTS = 250;
+const MAX_DAILY_REQUESTS = 20;
 
 // ── DOM Elements ──────────────────────────────────────────────────────────────
 
