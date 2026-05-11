@@ -6,7 +6,7 @@
 
 const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:8002'
-    : 'https://financial-statement-scraping.onrender.com';
+    : '';  // On Vercel: use same-origin proxy (vercel.json rewrites /api/* → Render)
 
 const MAX_DAILY_REQUESTS = 20;
 
