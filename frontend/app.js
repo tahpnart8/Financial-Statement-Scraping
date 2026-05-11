@@ -197,20 +197,62 @@ function generateUploadInputs() {
 
 el.backToConfigBtn.addEventListener('click', () => showSection('formSection'));
 
-// ── Step 3: AI Extraction ─────────────────────────────────────────────────────
+// ── Step 3: AI Extraction (Async Polling) ─────────────────────────────────────
 
 async function warmupServer() {
-    el.progressMessage.textContent = 'Đang kết nối server… (có thể mất 30-60s nếu server đang ngủ)';
+    el.progressMessage.textContent = 'Đang kết nối server… (có thể mất 30-60s)';
     el.progressFill.style.width = '5%';
     el.progressText.textContent = '5%';
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout for warmup
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
         await fetch(`${API_BASE}/health`, { signal: controller.signal });
         clearTimeout(timeoutId);
     } catch (e) {
-        throw new Error('Không thể kết nối tới server backend. Server có thể đang khởi động lại (Render Free Tier). Vui lòng đợi 1-2 phút rồi thử lại.');
+        throw new Error('Không thể kết nối tới server. Vui lòng đợi 1-2 phút rồi thử lại.');
     }
+}
+
+/**
+ * Poll job status until done or error (max 5 minutes per job).
+ */
+async function pollJobResult(jobId, periodLabel) {
+    const maxPollTime = 5 * 60 * 1000; // 5 minutes
+    const pollInterval = 3000; // 3 seconds
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxPollTime) {
+        await new Promise(r => setTimeout(r, pollInterval));
+
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        el.progressMessage.textContent = `Gemini AI đang đọc BCTC ${periodLabel}… (${elapsed}s)`;
+
+        try {
+            const resp = await fetch(`${API_BASE}/api/jobs/status/${jobId}`);
+            if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.detail || `Server trả về lỗi ${resp.status}`);
+            }
+
+            const job = await resp.json();
+
+            if (job.status === 'done') {
+                return { year: job.year, data: job.data };
+            }
+            if (job.status === 'error') {
+                throw new Error(job.detail || 'Lỗi không xác định từ AI');
+            }
+            // status === 'processing' → keep polling
+        } catch (err) {
+            if (err.message.includes('Failed to fetch')) {
+                // Network blip, keep trying
+                continue;
+            }
+            throw err;
+        }
+    }
+
+    throw new Error(`Quá thời gian chờ (5 phút). Gemini API phản hồi quá chậm cho file ${periodLabel}.`);
 }
 
 el.processAiBtn.addEventListener('click', async () => {
@@ -228,12 +270,11 @@ el.processAiBtn.addEventListener('click', async () => {
         return;
     }
 
-    // Check API usage limit
     if (!canMakeRequests(files.length)) return;
 
     showSection('progressSection');
 
-    // Warmup: ping server to wake it up if it's sleeping (Render Free Tier)
+    // Warmup server
     try {
         await warmupServer();
     } catch (err) {
@@ -247,45 +288,39 @@ el.processAiBtn.addEventListener('click', async () => {
 
     for (let i = 0; i < total; i++) {
         const item = files[i];
-        const pct = Math.round(((i + 0.5) / total) * 90) + 5; // 5% → 95%
-        el.progressFill.style.width = `${pct}%`;
-        el.progressText.textContent = `${pct}%`;
-        el.progressMessage.textContent = `Đang trích xuất năm ${item.period}… (${i + 1}/${total})`;
+        const basePct = Math.round((i / total) * 90) + 5;
+        el.progressFill.style.width = `${basePct}%`;
+        el.progressText.textContent = `${basePct}%`;
+        el.progressMessage.textContent = `Đang upload PDF năm ${item.period}… (${i + 1}/${total})`;
 
         try {
+            // 1. Submit PDF (fast, returns job_id in < 2 seconds)
             const fd = new FormData();
             fd.append('ticker', config.ticker);
             fd.append('year', item.period);
             fd.append('file', item.file);
 
-            // 5-minute timeout per PDF (Gemini can take a while for large files)
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000);
-
-            const resp = await fetch(`${API_BASE}/api/jobs/extract-pdf`, {
+            const submitResp = await fetch(`${API_BASE}/api/jobs/extract-pdf`, {
                 method: 'POST',
                 body: fd,
-                signal: controller.signal,
             });
-            clearTimeout(timeoutId);
 
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.detail || 'Lỗi server');
+            if (!submitResp.ok) {
+                const errText = await submitResp.text();
+                let detail = 'Lỗi upload file';
+                try { detail = JSON.parse(errText).detail; } catch {}
+                throw new Error(detail);
             }
 
-            const result = await resp.json();
-            allData.push({ year: result.year, data: result.data });
+            const { job_id } = await submitResp.json();
 
-            // Increment usage after each successful extraction
+            // 2. Poll for result (handles the long Gemini processing)
+            const result = await pollJobResult(job_id, item.period);
+            allData.push(result);
+
             incrementUsage(1);
         } catch (err) {
-            const msg = err.name === 'AbortError'
-                ? `Quá thời gian chờ (timeout 5 phút). Server hoặc Gemini API phản hồi quá chậm.`
-                : err.message === 'Failed to fetch'
-                    ? 'Mất kết nối tới server. Server Render (Free Tier) có thể đã ngủ. Vui lòng đợi 1-2 phút rồi thử lại.'
-                    : err.message;
-            alert(`Lỗi khi xử lý năm ${item.period}: ${msg}`);
+            alert(`Lỗi khi xử lý năm ${item.period}: ${err.message}`);
             showSection('uploadSection');
             return;
         }

@@ -1,14 +1,14 @@
 import os
 import logging
 import tempfile
-import uuid
+import threading
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 
 from app.models import (
     GenerateExcelRequest,
-    ExtractPdfResponse,
     GenerateExcelResponse
 )
 from app.services.llm_processor import process_pdf_with_gemini
@@ -19,11 +19,48 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
+# ── In-memory Job Store ───────────────────────────────────────────────────────
+# Simple dict-based store. Sufficient for single-instance Render deployment.
+# Jobs auto-clean after result is fetched.
+
+jobs_store: dict[str, dict] = {}
+
+
+def _run_extraction(job_id: str, pdf_path: str, ticker: str, year: int):
+    """Background worker: runs Gemini extraction and stores result."""
+    try:
+        json_data, error_msg = process_pdf_with_gemini(pdf_path, ticker, year)
+
+        if json_data:
+            jobs_store[job_id] = {
+                "status": "done",
+                "ticker": ticker,
+                "year": year,
+                "data": json_data,
+                "message": "Trích xuất thành công bằng Gemini AI",
+            }
+        else:
+            jobs_store[job_id] = {
+                "status": "error",
+                "detail": f"Lỗi AI: {error_msg or 'Không xác định'}",
+            }
+    except Exception as e:
+        logger.error(f"Background extraction failed for {job_id}: {e}")
+        jobs_store[job_id] = {
+            "status": "error",
+            "detail": f"Lỗi hệ thống: {str(e)}",
+        }
+    finally:
+        # Clean up temp PDF
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post(
     "/extract-pdf",
-    response_model=ExtractPdfResponse,
-    summary="Trích xuất dữ liệu BCTC từ 1 file PDF",
+    summary="Upload PDF và bắt đầu trích xuất (async)",
 )
 async def extract_pdf(
     ticker: str = Form(...),
@@ -31,32 +68,45 @@ async def extract_pdf(
     file: UploadFile = File(...)
 ):
     """
-    Nhận 1 file PDF, lưu tạm, dùng OCR/pdfplumber trích xuất bảng,
-    sau đó gọi LLaMA để bóc tách thành JSON chuẩn.
+    Nhận 1 file PDF, lưu tạm, khởi chạy trích xuất Gemini ở background.
+    Trả về job_id ngay lập tức (< 2 giây) để frontend poll kết quả.
     """
     logger.info(f"Received PDF for {ticker} - {year}")
-    
-    # Save uploaded file to temp
+
+    # Save uploaded file to temp (persistent, not auto-delete)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
 
-    try:
-        # 1. Trích xuất trực tiếp bằng Gemini 2.5 Flash (Xử lý được cả PDF scan ảnh)
-        json_data, error_msg = process_pdf_with_gemini(tmp_path, ticker, year)
-        
-        if not json_data:
-            raise HTTPException(status_code=500, detail=f"Lỗi AI: {error_msg or 'Không xác định'}")
+    # Create job
+    job_id = str(uuid4())
+    jobs_store[job_id] = {"status": "processing"}
 
-        return ExtractPdfResponse(
-            ticker=ticker,
-            year=year,
-            data=json_data,
-            message="Trích xuất thành công bằng Gemini AI"
-        )
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    # Start background thread (does NOT block the response)
+    thread = threading.Thread(
+        target=_run_extraction,
+        args=(job_id, tmp_path, ticker, year),
+        daemon=True,
+    )
+    thread.start()
+
+    logger.info(f"Job {job_id} started in background for {ticker}/{year}")
+    return {"job_id": job_id, "status": "processing"}
+
+
+@router.get(
+    "/status/{job_id}",
+    summary="Kiểm tra trạng thái job trích xuất",
+)
+async def get_job_status(job_id: str):
+    """
+    Frontend poll endpoint này mỗi 3 giây.
+    Returns: {status: "processing"} hoặc {status: "done", data: {...}} hoặc {status: "error", detail: "..."}
+    """
+    job = jobs_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job không tồn tại hoặc đã hết hạn.")
+    return job
 
 
 @router.post(
@@ -69,7 +119,7 @@ async def generate_excel_endpoint(request: GenerateExcelRequest):
     Nhận danh sách dữ liệu JSON các năm, ghép lại và sinh ra file Excel.
     """
     logger.info(f"Generating Excel for {request.ticker} ({request.year_from}-{request.year_to})")
-    
+
     try:
         # Convert yearly_data into the nested dict format required by excel_writer
         # Format: {"income_statement": { "revenue": { 2022: 100, 2023: 120 } }, ...}
@@ -78,20 +128,15 @@ async def generate_excel_endpoint(request: GenerateExcelRequest):
             "balance_sheet": {},
             "cash_flow": {}
         }
-        
+
         # Populate mapped_data
         for y_data in request.yearly_data:
             year = y_data.year
             data = y_data.data
-            
-            # Since LLM schema is flat, we just iterate through all keys and try to map them
-            # We don't have a strict segregation of keys by section in the flat output,
-            # so we'll just put them all into income_statement for now, OR better,
-            # we can put them into all sections and let the excel_writer pick them up.
-            
+
             for key, val in data.items():
                 if key == "year": continue
-                
+
                 # Assign to all sections for simplicity, excel_writer will filter by its MAPs
                 for section in mapped_data:
                     if key not in mapped_data[section]:
@@ -100,7 +145,7 @@ async def generate_excel_endpoint(request: GenerateExcelRequest):
 
         # Ensure output dir exists
         os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
-        
+
         # Generate file
         filepath = generate_excel(
             ticker=request.ticker,
@@ -109,12 +154,12 @@ async def generate_excel_endpoint(request: GenerateExcelRequest):
             year_to=request.year_to,
             output_dir=settings.OUTPUT_DIR
         )
-        
+
         filename = os.path.basename(filepath)
         download_url = f"/api/jobs/download/{filename}"
-        
+
         return GenerateExcelResponse(download_url=download_url)
-        
+
     except Exception as e:
         logger.error(f"Error generating Excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
