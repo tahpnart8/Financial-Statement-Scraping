@@ -1,107 +1,197 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BCTC Crawler - AI PDF Extraction</title>
+    <title>FinXtract - Trích xuất Báo cáo Tài chính bằng AI</title>
+    <meta name="description"
+        content="Hệ thống trích xuất 150+ chỉ số tài chính từ PDF bằng Google Gemini AI. Upload PDF → AI đọc → Xuất Excel.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Thêm SheetJS để parse Excel trên trình duyệt -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
+    <!-- tsParticles Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/tsparticles@2/tsparticles.bundle.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
+    <!-- ── Dynamic Backgrounds ────────────────────────────────────────────── -->
+    <div id="tsparticles"></div>
     <div class="bg-orb bg-orb-1"></div>
     <div class="bg-orb bg-orb-2"></div>
+    <div class="bg-orb bg-orb-3"></div>
 
-    <div class="app-container">
-        <header class="app-header">
-            <div class="logo">
-                <div class="logo-icon">📊</div>
+    <!-- ── Top Bar ──────────────────────────────────────────────────────── -->
+    <header class="top-bar">
+        <div class="top-bar-inner">
+            <div class="brand">
+                <div class="brand-icon">
+                    <i data-lucide="bar-chart-3"></i>
+                </div>
                 <div>
-                    <h1>BCTC AI Crawler</h1>
-                    <p class="subtitle">Trích xuất 150+ chỉ tiêu từ PDF</p>
+                    <h1>FinXtract</h1>
+                    <p class="brand-sub">Trích xuất 150+ chỉ số từ PDF</p>
                 </div>
             </div>
-            <div class="header-badge">
-                <span class="status-dot"></span>
-                <span id="serverStatus">Đang kết nối...</span>
+            <div class="top-bar-actions">
+                <div class="api-usage-badge" id="apiUsageBadge" title="Giới hạn 20 lượt trích xuất mỗi ngày">
+                    <i data-lucide="zap"></i>
+                    <span id="apiUsageText">0 / 20</span>
+                </div>
+                <div class="status-badge" id="statusBadge">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="serverStatus">Đang kết nối…</span>
+                </div>
             </div>
-        </header>
+        </div>
+    </header>
 
-        <main class="main-content">
-            <!-- Bước 1: Cấu hình -->
+    <!-- ── Main Content ────────────────────────────────────────────────── -->
+    <main class="main-content">
+        <div class="container">
+
+            <!-- Step Indicator -->
+            <nav class="steps-nav" id="stepsNav">
+                <div class="step-item active" data-step="1">
+                    <div class="step-num">1</div>
+                    <span>Cấu hình</span>
+                </div>
+                <div class="step-divider"></div>
+                <div class="step-item" data-step="2">
+                    <div class="step-num">2</div>
+                    <span>Upload PDF</span>
+                </div>
+                <div class="step-divider"></div>
+                <div class="step-item" data-step="3">
+                    <div class="step-num">3</div>
+                    <span>AI Xử lý</span>
+                </div>
+                <div class="step-divider"></div>
+                <div class="step-item" data-step="4">
+                    <div class="step-num">4</div>
+                    <span>Kết quả</span>
+                </div>
+            </nav>
+
+            <!-- ── Card 1: Config ─────────────────────────────────────── -->
             <section class="card" id="formSection">
-                <div class="card-header">
-                    <h2>Step 1: Cấu hình mã & Thời gian</h2>
+                <div class="card-head">
+                    <div class="card-icon"><i data-lucide="settings-2"></i></div>
+                    <div>
+                        <h2>Cấu hình trích xuất</h2>
+                        <p>Nhập mã cổ phiếu và khoảng thời gian báo cáo</p>
+                    </div>
                 </div>
                 <form id="bctcForm" class="form-grid">
-                    <div class="form-group full-width">
-                        <label>Mã cổ phiếu</label>
-                        <input type="text" id="tickerInput" placeholder="VD: DMC" required>
+                    <div class="form-group">
+                        <label><i data-lucide="hash" class="label-icon"></i> Mã cổ phiếu</label>
+                        <input type="text" id="tickerInput" placeholder="VD: DMC, VNM, FPT" required autocomplete="off">
                     </div>
                     <div class="form-group">
-                        <label>Kỳ báo cáo</label>
+                        <label><i data-lucide="calendar-range" class="label-icon"></i> Kỳ báo cáo</label>
                         <select id="periodType">
                             <option value="year">Theo năm</option>
                             <option value="quarter">Theo quý</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Từ năm</label>
-                        <input type="number" id="yearFrom" value="2015">
+                        <label><i data-lucide="calendar" class="label-icon"></i> Từ năm</label>
+                        <input type="number" id="yearFrom" value="2020" min="2000" max="2030">
                     </div>
                     <div class="form-group">
-                        <label>Đến năm</label>
-                        <input type="number" id="yearTo" value="2024">
+                        <label><i data-lucide="calendar-check" class="label-icon"></i> Đến năm</label>
+                        <input type="number" id="yearTo" value="2024" min="2000" max="2030">
                     </div>
-                    <button type="submit" class="btn-primary full-width" style="grid-column: 1/-1;">Tiếp theo: Nhập link PDF →</button>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <span>Tiếp theo</span>
+                            <i data-lucide="arrow-right"></i>
+                        </button>
+                    </div>
                 </form>
             </section>
 
-            <!-- Bước 2: Upload File -->
+            <!-- ── Card 2: Upload ─────────────────────────────────────── -->
             <section class="card hidden" id="uploadSection">
-                <div class="card-header">
-                    <h2>Step 2: Tải lên BCTC (PDF)</h2>
-                    <p>Hệ thống tự động cắt trang và dùng LLaMA AI trích xuất 150+ chỉ tiêu</p>
+                <div class="card-head">
+                    <div class="card-icon"><i data-lucide="upload-cloud"></i></div>
+                    <div>
+                        <h2>Tải lên BCTC (PDF)</h2>
+                        <p>Gemini AI sẽ đọc trực tiếp từng file PDF và trích xuất 150+ chỉ tiêu</p>
+                    </div>
                 </div>
-                <div id="uploadContainer" class="form-group full-width" style="display: flex; flex-direction: column; gap: 12px;">
-                    <!-- Dropzones will be generated here by JS -->
+                <div id="uploadContainer" class="upload-list">
+                    <!-- JS generates upload rows here -->
                 </div>
-                <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <button class="btn-secondary" id="backToConfigBtn">Quay lại</button>
-                    <button class="btn-primary" id="processAiBtn" style="flex: 1;">🚀 Bắt đầu trích xuất AI</button>
+                <div class="form-actions two-col">
+                    <button class="btn btn-ghost" id="backToConfigBtn">
+                        <i data-lucide="arrow-left"></i>
+                        <span>Quay lại</span>
+                    </button>
+                    <button class="btn btn-primary" id="processAiBtn">
+                        <i data-lucide="sparkles"></i>
+                        <span>Bắt đầu trích xuất AI</span>
+                    </button>
                 </div>
             </section>
 
-            <!-- Bước 3: Progress -->
+            <!-- ── Card 3: Progress ───────────────────────────────────── -->
             <section class="card hidden" id="progressSection">
-                <div class="card-header">
-                    <h2>🤖 AI đang đọc báo cáo...</h2>
-                    <p id="progressMessage">Vui lòng đợi trong giây lát</p>
+                <div class="card-head">
+                    <div class="card-icon spin"><i data-lucide="loader-2"></i></div>
+                    <div>
+                        <h2>AI đang đọc báo cáo…</h2>
+                        <p id="progressMessage">Vui lòng đợi trong giây lát</p>
+                    </div>
                 </div>
-                <div class="progress-container">
-                    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                    <span class="progress-text" id="progressText">0%</span>
+                <div class="progress-wrap">
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <span class="progress-pct" id="progressText">0%</span>
                 </div>
             </section>
 
-            <!-- Bước 4: Preview & Download -->
-            <section class="card hidden" id="resultSection" style="max-width: 100%;">
-                <div class="card-header">
-                    <h2>✅ Hoàn thành</h2>
+            <!-- ── Card 4: Result ─────────────────────────────────────── -->
+            <section class="card hidden" id="resultSection">
+                <div class="card-head">
+                    <div class="card-icon success"><i data-lucide="check-circle-2"></i></div>
+                    <div>
+                        <h2>Trích xuất hoàn tất</h2>
+                        <p id="resultSummary">Dữ liệu đã sẵn sàng để tải về</p>
+                    </div>
                 </div>
-                <div class="preview-container" style="overflow-x: auto; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 8px; background: #fff; max-height: 500px;">
-                    <table id="previewTable" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; color: #333;">
+                <div class="preview-container" id="previewContainer">
+                    <table id="previewTable">
                         <thead id="previewTableHeader"></thead>
                         <tbody id="previewTableBody"></tbody>
                     </table>
                 </div>
-                <button class="btn-download" id="downloadBtn">Tải file Excel (Full 150+ chỉ tiêu)</button>
-                <button class="btn-secondary" id="newQueryBtn" style="margin-top: 10px;">Làm truy vấn mới</button>
+                <div class="form-actions two-col">
+                    <button class="btn btn-ghost" id="newQueryBtn">
+                        <i data-lucide="refresh-cw"></i>
+                        <span>Truy vấn mới</span>
+                    </button>
+                    <button class="btn btn-success" id="downloadBtn">
+                        <i data-lucide="download"></i>
+                        <span>Tải Excel (150+ chỉ tiêu)</span>
+                    </button>
+                </div>
             </section>
-        </main>
-    </div>
+
+        </div>
+    </main>
+
+    <!-- ── Footer ──────────────────────────────────────────────────────── -->
+    <footer class="app-footer">
+        <p>FinXtract — Powered by <strong>Google Gemini</strong></p>
+        <p>Contact: github.com/tahpnart8</p>
+    </footer>
+
     <script src="app.js"></script>
 </body>
+
 </html>

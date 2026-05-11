@@ -1,260 +1,322 @@
 /**
- * BCTC AI Crawler - AI PDF Orchestrator
+ * FinXtract — Client v2.0
+ * ================================
+ * Orchestrates: Config → Upload → Gemini AI Extraction → Excel Download
  */
 
 const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:8002'
     : 'https://bctc-crawler-api.onrender.com';
 
-const elements = {
-    form: document.getElementById('bctcForm'),
-    tickerInput: document.getElementById('tickerInput'),
-    periodType: document.getElementById('periodType'),
-    yearFrom: document.getElementById('yearFrom'),
-    yearTo: document.getElementById('yearTo'),
-    
-    uploadSection: document.getElementById('uploadSection'),
-    formSection: document.getElementById('formSection'),
-    progressSection: document.getElementById('progressSection'),
-    resultSection: document.getElementById('resultSection'),
-    
-    uploadContainer: document.getElementById('uploadContainer'),
-    processAiBtn: document.getElementById('processAiBtn'),
-    backToConfigBtn: document.getElementById('backToConfigBtn'),
-    
-    progressFill: document.getElementById('progressFill'),
-    progressText: document.getElementById('progressText'),
-    progressMessage: document.getElementById('progressMessage'),
-    
-    previewTableHeader: document.getElementById('previewTableHeader'),
-    previewTableBody: document.getElementById('previewTableBody'),
-    downloadBtn: document.getElementById('downloadBtn'),
-    newQueryBtn: document.getElementById('newQueryBtn'),
-    
-    serverStatus: document.getElementById('serverStatus'),
-    statusDot: document.querySelector('.status-dot'),
+const MAX_DAILY_REQUESTS = 20;
+
+// ── DOM Elements ──────────────────────────────────────────────────────────────
+
+const $ = (id) => document.getElementById(id);
+
+const el = {
+    form:            $('bctcForm'),
+    tickerInput:     $('tickerInput'),
+    periodType:      $('periodType'),
+    yearFrom:        $('yearFrom'),
+    yearTo:          $('yearTo'),
+    formSection:     $('formSection'),
+    uploadSection:   $('uploadSection'),
+    progressSection: $('progressSection'),
+    resultSection:   $('resultSection'),
+    uploadContainer: $('uploadContainer'),
+    processAiBtn:    $('processAiBtn'),
+    backToConfigBtn: $('backToConfigBtn'),
+    progressFill:    $('progressFill'),
+    progressText:    $('progressText'),
+    progressMessage: $('progressMessage'),
+    downloadBtn:     $('downloadBtn'),
+    newQueryBtn:     $('newQueryBtn'),
+    serverStatus:    $('serverStatus'),
+    statusDot:       $('statusDot'),
+    apiUsageBadge:   $('apiUsageBadge'),
+    apiUsageText:    $('apiUsageText'),
+    stepsNav:        $('stepsNav'),
+    resultSummary:   $('resultSummary'),
 };
 
 let config = {};
-let uploadedFilesMap = {};
 
-// --- Health Check ---
+// ── Initialize ────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    lucide.createIcons();
+    checkHealth();
+    updateApiUsageUI();
+
+    // Init tsParticles
+    tsParticles.load("tsparticles", {
+        fpsLimit: 60,
+        particles: {
+            number: { value: 60, density: { enable: true, value_area: 800 } },
+            color: { value: ["#22c55e", "#4ade80", "#3b82f6"] },
+            shape: { type: "circle" },
+            opacity: { value: 0.4, random: true, anim: { enable: true, speed: 1, opacity_min: 0.1, sync: false } },
+            size: { value: 3, random: true, anim: { enable: true, speed: 2, size_min: 0.1, sync: false } },
+            links: { enable: true, distance: 150, color: "#94a3b8", opacity: 0.3, width: 1 },
+            move: { enable: true, speed: 1.5, direction: "none", random: true, straight: false, out_mode: "out", bounce: false, attract: { enable: false, rotateX: 600, rotateY: 1200 } }
+        },
+        interactivity: {
+            detect_on: "canvas",
+            events: {
+                onhover: { enable: true, mode: "grab" },
+                onclick: { enable: true, mode: "repulse" },
+                resize: true
+            },
+            modes: {
+                grab: { distance: 200, links: { opacity: 0.6 } },
+                repulse: { distance: 250, duration: 0.4 }
+            }
+        },
+        retina_detect: true
+    });
+});
+
+// ── Health Check ──────────────────────────────────────────────────────────────
+
 async function checkHealth() {
     try {
         const resp = await fetch(`${API_BASE}/health`);
         if (resp.ok) {
-            elements.serverStatus.textContent = 'Server online';
-            elements.statusDot.classList.add('online');
+            el.serverStatus.textContent = 'Server online';
+            el.statusDot.classList.add('online');
         }
-    } catch (e) {
-        elements.serverStatus.textContent = 'Server offline';
-        elements.statusDot.classList.remove('online');
+    } catch {
+        el.serverStatus.textContent = 'Server offline';
+        el.statusDot.classList.remove('online');
     }
 }
-checkHealth();
 
-// --- Navigation ---
-function showSection(id) {
-    elements.formSection.classList.add('hidden');
-    if (elements.uploadSection) elements.uploadSection.classList.add('hidden');
-    elements.progressSection.classList.add('hidden');
-    elements.resultSection.classList.add('hidden');
-    document.getElementById(id).classList.remove('hidden');
+// ── API Usage Counter ─────────────────────────────────────────────────────────
+
+function getTodayKey() {
+    const d = new Date();
+    return `bctc_usage_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-// --- Step 1: Config ---
-elements.form.addEventListener('submit', (e) => {
+function getUsageCount() {
+    return parseInt(localStorage.getItem(getTodayKey()) || '0', 10);
+}
+
+function incrementUsage(count = 1) {
+    const key = getTodayKey();
+    const current = parseInt(localStorage.getItem(key) || '0', 10);
+    localStorage.setItem(key, current + count);
+    updateApiUsageUI();
+}
+
+function updateApiUsageUI() {
+    const used = getUsageCount();
+    el.apiUsageText.textContent = `${used} / ${MAX_DAILY_REQUESTS}`;
+    el.apiUsageBadge.classList.remove('warning', 'danger');
+    if (used >= MAX_DAILY_REQUESTS) {
+        el.apiUsageBadge.classList.add('danger');
+    } else if (used >= 15) {
+        el.apiUsageBadge.classList.add('warning');
+    }
+}
+
+function canMakeRequests(count) {
+    const used = getUsageCount();
+    if (used + count > MAX_DAILY_REQUESTS) {
+        const remaining = MAX_DAILY_REQUESTS - used;
+        alert(`⚠️ Giới hạn API: Bạn chỉ còn ${remaining} lượt trích xuất hôm nay.\n\nBạn đang yêu cầu ${count} file nhưng chỉ còn ${remaining} lượt. Vui lòng giảm số file hoặc đợi sang ngày mai.`);
+        return false;
+    }
+    return true;
+}
+
+// ── Navigation & Steps ────────────────────────────────────────────────────────
+
+function showSection(id) {
+    [el.formSection, el.uploadSection, el.progressSection, el.resultSection]
+        .forEach(s => s.classList.add('hidden'));
+    $(id).classList.remove('hidden');
+
+    // Update step indicator
+    const stepMap = { 'formSection': 1, 'uploadSection': 2, 'progressSection': 3, 'resultSection': 4 };
+    const current = stepMap[id] || 1;
+    el.stepsNav.querySelectorAll('.step-item').forEach(item => {
+        const step = parseInt(item.dataset.step);
+        item.classList.remove('active', 'done');
+        if (step === current) item.classList.add('active');
+        else if (step < current) item.classList.add('done');
+    });
+}
+
+// ── Step 1: Config ────────────────────────────────────────────────────────────
+
+el.form.addEventListener('submit', (e) => {
     e.preventDefault();
     config = {
-        ticker: elements.tickerInput.value.trim().toUpperCase(),
-        period: elements.periodType.value,
-        from: parseInt(elements.yearFrom.value),
-        to: parseInt(elements.yearTo.value)
+        ticker: el.tickerInput.value.trim().toUpperCase(),
+        period: el.periodType.value,
+        from:   parseInt(el.yearFrom.value),
+        to:     parseInt(el.yearTo.value),
     };
-    
+
+    if (config.from > config.to) {
+        alert('Năm bắt đầu không được lớn hơn năm kết thúc.');
+        return;
+    }
+
     generateUploadInputs();
     showSection('uploadSection');
 });
 
+// ── Step 2: Upload ────────────────────────────────────────────────────────────
+
 function generateUploadInputs() {
-    elements.uploadContainer.innerHTML = '';
-    uploadedFilesMap = {};
-    const years = [];
+    el.uploadContainer.innerHTML = '';
+    const periods = [];
     for (let y = config.from; y <= config.to; y++) {
-        if (config.period === 'year') years.push(y);
-        else {
-            for (let q = 1; q <= 4; q++) years.push(`${y}-Q${q}`);
+        if (config.period === 'year') periods.push(String(y));
+        else for (let q = 1; q <= 4; q++) periods.push(`${y}-Q${q}`);
+    }
+
+    periods.forEach(label => {
+        const row = document.createElement('div');
+        row.className = 'upload-row';
+        row.innerHTML = `
+            <div class="year-label">
+                <i data-lucide="file-text"></i>
+                ${label}
+            </div>
+            <input type="file" accept="application/pdf" class="pdf-input" data-period="${label}">
+        `;
+        el.uploadContainer.appendChild(row);
+    });
+
+    lucide.createIcons();
+}
+
+el.backToConfigBtn.addEventListener('click', () => showSection('formSection'));
+
+// ── Step 3: AI Extraction ─────────────────────────────────────────────────────
+
+el.processAiBtn.addEventListener('click', async () => {
+    const inputs = document.querySelectorAll('.pdf-input');
+    const files = [];
+
+    for (const input of inputs) {
+        if (input.files.length > 0) {
+            files.push({ period: input.dataset.period, file: input.files[0] });
         }
     }
-    
-    years.forEach(periodLabel => {
-        const div = document.createElement('div');
-        div.className = 'form-group';
-        div.style.marginBottom = '15px';
-        div.style.padding = '10px';
-        div.style.border = '1px dashed var(--border-color)';
-        div.style.borderRadius = '8px';
-        div.style.background = '#f8fafc';
-        
-        div.innerHTML = `
-            <label style="font-size: 0.9rem; color: var(--accent-primary); font-weight: bold;">Tải BCTC PDF năm ${periodLabel}:</label>
-            <input type="file" accept="application/pdf" class="pdf-file-input" data-period="${periodLabel}" style="width: 100%; border: none; background: transparent; padding: 5px 0;">
-        `;
-        elements.uploadContainer.appendChild(div);
-    });
-}
 
-if (elements.backToConfigBtn) {
-    elements.backToConfigBtn.addEventListener('click', () => showSection('formSection'));
-}
+    if (files.length === 0) {
+        alert('Vui lòng chọn ít nhất 1 file PDF.');
+        return;
+    }
 
-// --- Step 2: Orchestrator ---
-if (elements.processAiBtn) {
-    elements.processAiBtn.addEventListener('click', async () => {
-        const fileInputs = document.querySelectorAll('.pdf-file-input');
-        const filesToProcess = [];
-        
-        for (let input of fileInputs) {
-            if (input.files.length > 0) {
-                filesToProcess.push({
-                    period: input.dataset.period,
-                    file: input.files[0]
-                });
-            }
-        }
+    // Check API usage limit
+    if (!canMakeRequests(files.length)) return;
 
-        if (filesToProcess.length === 0) {
-            alert('Vui lòng chọn ít nhất 1 file PDF.');
-            return;
-        }
+    showSection('progressSection');
+    const allData = [];
+    const total = files.length;
 
-        showSection('progressSection');
-        const allExtractedData = [];
-        const total = filesToProcess.length;
-
-        // Hành trình cuốn chiếu: Xử lý từng file một để tránh sập Server Vercel
-        for (let i = 0; i < total; i++) {
-            const item = filesToProcess[i];
-            
-            // Cập nhật Progress
-            const pct = Math.round((i / total) * 100);
-            elements.progressFill.style.width = `${pct}%`;
-            elements.progressText.textContent = `${pct}%`;
-            elements.progressMessage.textContent = `Đang trích xuất AI cho năm ${item.period}... (File ${i+1}/${total})`;
-            
-            try {
-                const formData = new FormData();
-                formData.append("ticker", config.ticker);
-                formData.append("year", item.period);
-                formData.append("file", item.file);
-
-                const resp = await fetch(`${API_BASE}/api/jobs/extract-pdf`, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (!resp.ok) {
-                    const err = await resp.json();
-                    throw new Error(err.detail || "Lỗi server");
-                }
-
-                const result = await resp.json();
-                allExtractedData.push({
-                    year: result.year,
-                    data: result.data
-                });
-
-            } catch (err) {
-                alert(`Lỗi khi xử lý năm ${item.period}: ` + err.message);
-                showSection('uploadSection');
-                return; // Dừng lại nếu có lỗi
-            }
-        }
-
-        // Bước 2: Gom toàn bộ kết quả, gọi API tạo Excel
-        elements.progressFill.style.width = `95%`;
-        elements.progressText.textContent = `95%`;
-        elements.progressMessage.textContent = `Đang tổng hợp dữ liệu và tạo file Excel...`;
+    for (let i = 0; i < total; i++) {
+        const item = files[i];
+        const pct = Math.round((i / total) * 100);
+        el.progressFill.style.width = `${pct}%`;
+        el.progressText.textContent = `${pct}%`;
+        el.progressMessage.textContent = `Đang trích xuất năm ${item.period}… (${i + 1}/${total})`;
 
         try {
-            const excelResp = await fetch(`${API_BASE}/api/jobs/generate-excel`, {
+            const fd = new FormData();
+            fd.append('ticker', config.ticker);
+            fd.append('year', item.period);
+            fd.append('file', item.file);
+
+            const resp = await fetch(`${API_BASE}/api/jobs/extract-pdf`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ticker: config.ticker,
-                    year_from: config.from,
-                    year_to: config.to,
-                    yearly_data: allExtractedData
-                })
+                body: fd,
             });
 
-            if (!excelResp.ok) throw new Error("Lỗi khi tạo Excel");
-            const excelData = await excelResp.json();
-            
-            elements.progressFill.style.width = `100%`;
-            elements.progressText.textContent = `100%`;
-            
-            await renderPreviewExcel(`${API_BASE}${excelData.download_url}`);
-            
-            showSection('resultSection');
-            elements.downloadBtn.onclick = () => window.open(`${API_BASE}${excelData.download_url}`, '_blank');
-            
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.detail || 'Lỗi server');
+            }
+
+            const result = await resp.json();
+            allData.push({ year: result.year, data: result.data });
+
+            // Increment usage after each successful extraction
+            incrementUsage(1);
         } catch (err) {
-            alert('Lỗi tạo Excel: ' + err.message);
+            alert(`Lỗi khi xử lý năm ${item.period}: ${err.message}`);
             showSection('uploadSection');
+            return;
         }
-    });
-}
+    }
 
-// --- Step 3: Result & SheetJS Preview ---
-async function renderPreviewExcel(fileUrl) {
+    // Generate Excel
+    el.progressFill.style.width = '95%';
+    el.progressText.textContent = '95%';
+    el.progressMessage.textContent = 'Đang tạo file Excel…';
+
     try {
-        elements.previewTableHeader.innerHTML = "";
-        elements.previewTableBody.innerHTML = "<tr><td style='padding:10px;'>Đang load Excel Preview...</td></tr>";
-        
-        // Fetch file blob
-        const response = await fetch(fileUrl);
-        const arrayBuffer = await response.arrayBuffer();
-        
-        // Parse bằng SheetJS
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-        
-        // Lấy Sheet đầu tiên (BCTC du phong)
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        
-        // Convert to HTML string
-        const htmlStr = XLSX.utils.sheet_to_html(worksheet);
-        
-        // Dùng trick để extract the <table> từ htmlStr và dán vào
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlStr, 'text/html');
-        const generatedTable = doc.querySelector('table');
-        
-        if (generatedTable) {
-            // Apply style for SheetJS generated table
-            generatedTable.style.width = "100%";
-            generatedTable.style.borderCollapse = "collapse";
-            
-            const tds = generatedTable.querySelectorAll('td, th');
-            tds.forEach(td => {
-                td.style.border = "1px solid #e2e8f0";
-                td.style.padding = "6px";
-                td.style.whiteSpace = "nowrap";
-            });
-            
-            const tableContainer = document.querySelector('.preview-container');
-            tableContainer.innerHTML = "";
-            tableContainer.appendChild(generatedTable);
+        const resp = await fetch(`${API_BASE}/api/jobs/generate-excel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ticker: config.ticker,
+                year_from: config.from,
+                year_to: config.to,
+                yearly_data: allData,
+            }),
+        });
+
+        if (!resp.ok) throw new Error('Lỗi khi tạo Excel');
+        const data = await resp.json();
+
+        el.progressFill.style.width = '100%';
+        el.progressText.textContent = '100%';
+
+        const downloadUrl = `${API_BASE}${data.download_url}`;
+        await renderPreview(downloadUrl);
+
+        el.resultSummary.textContent = `Đã trích xuất ${allData.length} năm cho ${config.ticker}`;
+        showSection('resultSection');
+        el.downloadBtn.onclick = () => window.open(downloadUrl, '_blank');
+    } catch (err) {
+        alert('Lỗi tạo Excel: ' + err.message);
+        showSection('uploadSection');
+    }
+});
+
+// ── Step 4: Result Preview ────────────────────────────────────────────────────
+
+async function renderPreview(fileUrl) {
+    const container = $('previewContainer');
+    container.innerHTML = '<p style="padding:16px;color:var(--text-muted)">Đang tải preview…</p>';
+
+    try {
+        const resp = await fetch(fileUrl);
+        const buf = await resp.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const html = XLSX.utils.sheet_to_html(ws);
+
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const table = doc.querySelector('table');
+
+        if (table) {
+            container.innerHTML = '';
+            container.appendChild(table);
         }
-        
-    } catch (e) {
-        console.error("Lỗi preview Excel:", e);
-        elements.previewTableBody.innerHTML = "<tr><td style='padding:10px; color:red'>Không thể load Preview, vui lòng tải file trực tiếp!</td></tr>";
+    } catch {
+        container.innerHTML = '<p style="padding:16px;color:var(--red-500)">Không thể load preview. Vui lòng tải file trực tiếp.</p>';
     }
 }
 
-elements.newQueryBtn.addEventListener('click', () => {
+el.newQueryBtn.addEventListener('click', () => {
     showSection('formSection');
-    elements.tickerInput.value = '';
+    el.tickerInput.value = '';
 });

@@ -3,36 +3,10 @@ Pydantic models for API request/response validation.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
-from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
-
-
-# ── Enums ──────────────────────────────────────────────────────────────────────
-
-class ReportType(str, Enum):
-    """Loại báo cáo tài chính."""
-    BALANCE_SHEET = "balance_sheet"
-    INCOME_STATEMENT = "income_statement"
-    CASH_FLOW = "cash_flow"
-    ALL = "all"
-
-
-class PeriodType(str, Enum):
-    """Kỳ báo cáo."""
-    YEAR = "year"
-    QUARTER = "quarter"
-
-
-class JobStatus(str, Enum):
-    """Trạng thái job."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
 
 
 # ── Request Models ─────────────────────────────────────────────────────────────
@@ -68,14 +42,8 @@ class GenerateExcelResponse(BaseModel):
     download_url: str
     message: str = "Success"
 
-
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str = "ok"
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     version: str = "1.0.0"
-
-class TickerListResponse(BaseModel):
-    """Response containing a list of tickers."""
-    tickers: list[str]
-    count: int

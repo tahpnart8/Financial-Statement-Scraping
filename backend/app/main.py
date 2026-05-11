@@ -1,13 +1,8 @@
 """
-BCTC Crawling System - FastAPI Application
-===========================================
-Main entry point for the backend API server.
-
-Features:
-  - Async job-based BCTC data extraction
-  - Dual data source (vnstock primary, CafeF fallback)
-  - Dynamic Excel template generation
-  - Swagger UI at /docs
+FinXtract - FastAPI Application
+=======================================
+AI-powered financial report extraction system.
+Upload PDF → Gemini AI reads & extracts → Excel output.
 """
 from __future__ import annotations
 
@@ -19,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.models import HealthResponse
-from app.routers import jobs, tickers
+from app.routers import jobs
 
 # ── Logging Setup ──────────────────────────────────────────────────────────────
 
@@ -44,7 +39,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS + ["*"],  # Allow all in dev
+    allow_origins=settings.ALLOWED_ORIGINS + ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,17 +48,14 @@ app.add_middleware(
 # ── Routers ────────────────────────────────────────────────────────────────────
 
 app.include_router(jobs.router)
-app.include_router(tickers.router)
 
 # ── Health Check ───────────────────────────────────────────────────────────────
-
 
 @app.get(
     "/health",
     response_model=HealthResponse,
     tags=["System"],
     summary="Health Check",
-    description="Kiểm tra trạng thái hoạt động của server.",
 )
 async def health_check():
     return HealthResponse(
@@ -72,21 +64,17 @@ async def health_check():
         version=settings.APP_VERSION,
     )
 
-
 @app.get("/", tags=["System"], include_in_schema=False)
 async def root():
     return {
-        "message": "BCTC Crawling System API",
+        "message": "FinXtract API",
         "docs": "/docs",
         "health": "/health",
     }
 
-
 # ── Startup Event ──────────────────────────────────────────────────────────────
-
 
 @app.on_event("startup")
 async def startup_event():
     logger.info(f"🚀 {settings.APP_TITLE} v{settings.APP_VERSION} started")
-    logger.info(f"📊 Data source: vnstock ({settings.VNSTOCK_SOURCE})")
     logger.info(f"📂 Output dir: {settings.OUTPUT_DIR}")
